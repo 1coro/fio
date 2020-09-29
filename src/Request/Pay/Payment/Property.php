@@ -1,0 +1,177 @@
+<?php declare(strict_types=1);
+
+namespace coro\Fio\Request\Pay\Payment;
+
+use coro\Fio\Account;
+use coro\Fio\Exceptions\InvalidArgument;
+use Iterator;
+use Nette\Utils\DateTime;
+
+abstract class Property implements Iterator
+{
+
+	/** @var Account\FioAccount */
+	protected $accountFrom;
+
+	/** @var string */
+	protected $currency = 'CZK';
+
+	/** @var float */
+	protected $amount = 0.0;
+
+	/** @var string */
+	protected $accountTo = '';
+
+	/** @var string */
+	protected $date;
+
+	/** @var string */
+	protected $comment;
+
+	/**
+	 * Section in manual 7.2.3.1.
+	 * @var int
+	 */
+	protected $paymentReason = 0;
+
+	/** @var array */
+	private static $iterator = [];
+
+	/** @var string */
+	private $key;
+
+
+	public function __construct(Account\FioAccount $account)
+	{
+		$this->accountFrom = $account;
+		$this->setDate('now');
+	}
+
+
+	/**
+	 * @return static
+	 */
+	public function setAmount(float $amount)
+	{
+		$this->amount = $amount;
+		if ($amount <= 0) {
+			throw new InvalidArgument('Amount must by positive number.');
+		}
+		return $this;
+	}
+
+
+	/**
+	 * @return static
+	 */
+	abstract public function setAccountTo(string $accountTo);
+
+
+	/**
+	 * Currency code ISO 4217.
+	 * @return static
+	 */
+	public function setCurrency(string $code)
+	{
+		if (!preg_match('~[a-z]{3}~i', $code)) {
+			throw new InvalidArgument('Currency code must match ISO 4217.');
+		}
+		$this->currency = strtoupper($code);
+		return $this;
+	}
+
+
+	/**
+	 * @return static
+	 */
+	public function setMyComment(string $comment)
+	{
+		$this->comment = InvalidArgument::check($comment, 255);
+		return $this;
+	}
+
+
+	/**
+	 * @param int|string|\DateTimeInterface $date
+	 * @return static
+	 */
+	public function setDate($date)
+	{
+		$this->date = DateTime::from($date)->format('Y-m-d');
+		return $this;
+	}
+
+
+	/**
+	 * @return static
+	 */
+	public function setPaymentReason(int $code)
+	{
+		$this->paymentReason = InvalidArgument::checkRange($code, 999);
+		return $this;
+	}
+
+
+	/**
+	 * Order is important.
+	 * @return array<string, bool>
+	 */
+	abstract public function getExpectedProperty(): array;
+
+
+	abstract public function getStartXmlElement(): string;
+
+
+	private function getProperties(): array
+	{
+		if ($this->key === null) {
+			$this->key = get_called_class();
+		}
+		if (isset(self::$iterator[$this->key])) {
+			return self::$iterator[$this->key];
+		}
+
+		return self::$iterator[$this->key] = $this->getExpectedProperty();
+	}
+
+
+	/**
+	 * ITERATOR INTERFACE ******************************************************
+	 * *************************************************************************
+	 */
+	public function current()
+	{
+		$property = $this->key();
+		$method = 'get' . ucfirst($property);
+		if (method_exists($this, $method)) {
+			return $this->{$method}();
+		}
+		return $this->{$property};
+	}
+
+
+	public function key()
+	{
+		return key(self::$iterator[$this->key]);
+	}
+
+
+	public function next()
+	{
+		next(self::$iterator[$this->key]);
+	}
+
+
+	public function rewind()
+	{
+		$this->getProperties();
+		reset(self::$iterator[$this->key]);
+	}
+
+
+	public function valid()
+	{
+		return array_key_exists(key(self::$iterator[$this->key]), self::$iterator[$this->key]);
+	}
+
+}
